@@ -88,17 +88,36 @@ def run_scan() -> None:
         return
     logger.info(f"Fetched {len(markets)} markets")
 
-    # Dedup: skip markets analyzed in the last 6 hours
-    recent_ids = get_recent_market_ids(cooldown_hours=6)
+    # Dedup: skip markets analyzed recently (default 1h to catch breaking news)
+    cooldown_hours = 1
+    recent_ids = get_recent_market_ids(cooldown_hours=cooldown_hours)
     if recent_ids:
         fresh_markets = [m for m in markets if m["question"][:80] not in recent_ids]
         skipped = len(markets) - len(fresh_markets)
         if skipped:
-            logger.info(f"Skipping {skipped} recently analyzed markets (within 6h), analyzing {len(fresh_markets)}")
+            logger.info(f"Skipping {skipped} recently analyzed markets (within {cooldown_hours}h), analyzing {len(fresh_markets)}")
         markets = fresh_markets
 
     if not markets:
         logger.info("All markets recently analyzed, skipping this round")
+        return
+
+    # Filter: skip settled/extreme-priced markets (>99% or <1% means event likely over)
+    filtered_markets = []
+    skipped_extreme = 0
+    for m in markets:
+        price = m.get("yes_price", 0.5) or 0.5
+        if price > 0.99 or price < 0.01:
+            logger.info(f"Skipping (extreme price {price*100:.0f}%): {m['question'][:60]}")
+            skipped_extreme += 1
+            continue
+        filtered_markets.append(m)
+    if skipped_extreme:
+        logger.info(f"Filtered {skipped_extreme} extreme-priced markets (likely settled)")
+    markets = filtered_markets
+
+    if not markets:
+        logger.info("All markets filtered out, skipping this round")
         return
 
     # Step 2: Search news for each market
