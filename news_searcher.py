@@ -1,7 +1,6 @@
 """
-新闻搜索模块 - 为每个 Polymarket 事件搜索相关新闻
-使用 Serper API（Google 搜索接口，$50/月 2500次搜索）
-备选：Tavily API、NewsAPI
+News search module — search Google News for each Polymarket event
+Uses Serper API (Google Search interface)
 """
 
 import requests
@@ -13,12 +12,9 @@ logger = logging.getLogger(__name__)
 
 
 def search_news_for_event(question: str, num_results: int = 5) -> List[Dict]:
-    """
-    根据市场问题搜索相关新闻
-    返回新闻标题、摘要、来源、发布时间列表
-    """
+    """Search news for a market question. Returns title, snippet, source, date, link."""
     if not SERPER_API_KEY or SERPER_API_KEY == "your_serper_api_key":
-        logger.warning("未配置 SERPER_API_KEY，使用模拟新闻数据")
+        logger.warning("SERPER_API_KEY not configured, using mock news data")
         return _mock_news(question)
 
     try:
@@ -49,38 +45,35 @@ def search_news_for_event(question: str, num_results: int = 5) -> List[Dict]:
                 "link": item.get("link", ""),
             })
 
-        logger.info(f"为 '{question[:50]}...' 找到 {len(news_items)} 条新闻")
+        logger.info(f"Found {len(news_items)} news items for '{question[:50]}...'")
         return news_items
 
     except requests.RequestException as e:
-        logger.error(f"新闻搜索失败: {e}")
+        logger.error(f"News search failed: {e}")
         return []
 
 
 def format_news_for_analysis(news_items: List[Dict]) -> str:
-    """把新闻列表格式化成适合 Claude 分析的文本"""
+    """Format news list for AI analysis"""
     if not news_items:
-        return "未找到相关新闻"
+        return "No news found"
 
     lines = []
     for i, item in enumerate(news_items, 1):
         lines.append(f"{i}. [{item['source']} {item['date']}] {item['title']}")
         if item['snippet']:
-            lines.append(f"   摘要：{item['snippet']}")
+            lines.append(f"   Summary: {item['snippet']}")
     return "\n".join(lines)
 
 
 def _mock_news(question: str) -> List[Dict]:
-    """
-    未配置 API 时返回模拟数据，用于开发测试
-    生产环境请配置真实的 SERPER_API_KEY
-    """
+    """Mock data for dev/testing when no API key configured"""
     return [
         {
-            "title": f"[模拟新闻] 关于 '{question[:40]}' 的最新报道",
-            "snippet": "这是模拟新闻摘要，请配置 SERPER_API_KEY 获取真实新闻。",
+            "title": f"[Mock news] Latest reports on '{question[:40]}'",
+            "snippet": "This is mock news. Configure SERPER_API_KEY for real news.",
             "source": "MockNews",
-            "date": "刚刚",
+            "date": "just now",
             "link": "#"
         }
     ]

@@ -1,6 +1,6 @@
 """
-自动复盘模块 — 检查已结算市场，自动更新交易结果
-替代手动 --update-result，零人工干预
+Auto-review module — checks settled markets and auto-updates trade results
+Replaces manual --update-result, zero human intervention
 """
 
 import logging
@@ -25,10 +25,7 @@ def _retry_session(total: int = 3, backoff: float = 1.0) -> requests.Session:
 
 
 def check_market_resolution(market_id: str) -> Optional[Dict]:
-    """
-    查询单个市场的结算状态
-    返回: {"resolved": True, "winner": "YES"/"NO", "tie": False} 或 None
-    """
+    """Query settlement status of a single market. Returns resolution info or None."""
     if not market_id:
         return None
 
@@ -40,11 +37,11 @@ def check_market_resolution(market_id: str) -> Optional[Dict]:
         resp.raise_for_status()
         m = resp.json()
     except requests.RequestException as e:
-        logger.warning(f"查询市场 #{market_id} 失败: {e}")
+        logger.warning(f"Failed to query market #{market_id}: {e}")
         return None
 
     if not m.get("closed"):
-        return None  # 还没结算，继续等
+        return None
 
     prices = m.get("outcomePrices")
     if not prices:
@@ -69,10 +66,7 @@ def check_market_resolution(market_id: str) -> Optional[Dict]:
 
 
 def determine_result(action: str, winner: str, outcomes: list) -> str:
-    """
-    根据我们的仓位和市场胜出方，判断 WIN / LOSS / PUSH
-    outcomes 是市场定义的输出，如 ["Yes", "No"] 或 ["TeamA", "TeamB"]
-    """
+    """Determine WIN / LOSS / PUSH based on our position and market winner"""
     yes_label = outcomes[0] if outcomes else "Yes"
 
     if winner == "TIE":
@@ -92,14 +86,12 @@ def determine_result(action: str, winner: str, outcomes: list) -> str:
 
 
 def calculate_pnl(action: str, result: str, market_price: float, bet_amount: float) -> float:
-    """计算盈亏金额"""
+    """Calculate PnL for a trade"""
     if result == "PUSH" or bet_amount == 0:
         return 0.0
     if result == "LOSS":
         return -bet_amount
     if result == "WIN":
-        # BUY_YES: buy at price p, win → return bet/p, profit = bet*(1-p)/p
-        # BUY_NO: buy at 1-p, win → return bet/(1-p), profit = bet*p/(1-p)
         p = market_price
         if action == "BUY_YES":
             return bet_amount * (1 - p) / p if p > 0 else bet_amount
@@ -109,10 +101,7 @@ def calculate_pnl(action: str, result: str, market_price: float, bet_amount: flo
 
 
 def run_auto_review() -> int:
-    """
-    遍历所有待结算记录，检查是否已出结果，自动更新
-    返回: 本次更新的记录数
-    """
+    """Iterate all pending records, check if resolved, auto-update. Returns count updated."""
     records = load_experience()
     pending = [r for r in records if r.get("result") is None and r.get("market_id")]
 
@@ -125,11 +114,11 @@ def run_auto_review() -> int:
         resolution = check_market_resolution(market_id)
 
         if not resolution:
-            continue  # 还没结算或查询失败
+            continue
 
         action = record.get("recommended_action", "SKIP")
         winner = resolution["winner"]
-        outcomes_hint = ["Yes", "No"]  # 大多数市场用 Yes/No
+        outcomes_hint = ["Yes", "No"]
 
         result = determine_result(action, winner, outcomes_hint)
         pnl = calculate_pnl(
@@ -141,18 +130,17 @@ def run_auto_review() -> int:
         record["result"] = result
         record["pnl_usd"] = round(pnl, 2)
 
-        # 简单教训生成
         if result == "LOSS":
             edge = abs(record.get("probability_edge", 0))
             record["lesson"] = (
-                f"自动复盘：{action} 亏损。边缘{edge*100:.0f}%。"
-                f"市场胜出方: {winner}"
+                f"Auto-review: {action} loss. Edge was {edge*100:.0f}%. "
+                f"Market winner: {winner}"
             )
         elif result == "WIN":
-            record["lesson"] = f"自动复盘：{action} 盈利。"
+            record["lesson"] = f"Auto-review: {action} win."
 
         logger.info(
-            f"自动复盘 #{record['id']}: {result} ${record['pnl_usd']:+.2f} | "
+            f"Auto-review #{record['id']}: {result} ${record['pnl_usd']:+.2f} | "
             f"{record['market_question'][:50]}"
         )
         updated += 1
@@ -164,7 +152,7 @@ def run_auto_review() -> int:
 
 
 def _estimate_bet(action_taken: str) -> float:
-    """从 action_taken 字符串中提取下注金额"""
+    """Extract bet amount from action_taken string"""
     import re
     match = re.search(r'\$([\d.]+)', action_taken)
     return float(match.group(1)) if match else 0.0

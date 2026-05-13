@@ -1,6 +1,6 @@
 """
-经验积累模块 - 记录每次分析和交易结果，供下次分析参考
-这是系统"越用越聪明"的核心机制
+Experience accumulation module — records every analysis and trade result
+Core mechanism for the system "getting smarter over time"
 """
 
 import json
@@ -14,25 +14,25 @@ logger = logging.getLogger(__name__)
 
 
 def load_experience() -> List[Dict]:
-    """加载历史经验记录"""
+    """Load historical experience records"""
     if not os.path.exists(EXPERIENCE_LOG_FILE):
         return []
     try:
         with open(EXPERIENCE_LOG_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
-        logger.error(f"加载经验记录失败: {e}")
+        logger.error(f"Failed to load experience records: {e}")
         return []
 
 
 def save_experience(records: List[Dict]) -> None:
-    """保存经验记录"""
+    """Save experience records"""
     os.makedirs(os.path.dirname(EXPERIENCE_LOG_FILE), exist_ok=True)
     try:
         with open(EXPERIENCE_LOG_FILE, "w", encoding="utf-8") as f:
             json.dump(records, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        logger.error(f"保存经验记录失败: {e}")
+        logger.error(f"Failed to save experience records: {e}")
 
 
 def add_analysis_record(
@@ -45,37 +45,32 @@ def add_analysis_record(
     bet_amount_usd: float = 0,
     market_id: str = "",
 ) -> Dict:
-    """
-    记录一次分析结果（下注结果稍后通过 update_trade_result 或自动复盘更新）
-    """
+    """Record an analysis result. Result updated later via update_trade_result or auto_review."""
     records = load_experience()
     record = {
         "id": len(records) + 1,
         "timestamp": datetime.now().isoformat(),
-        "market_id": market_id,                     # 用于自动复盘时查询结算状态
+        "market_id": market_id,
         "market_question": market_question,
-        "market_yes_price": market_yes_price,       # 市场定价的YES概率
-        "claude_probability": claude_probability,   # Claude 判断的真实概率
+        "market_yes_price": market_yes_price,
+        "claude_probability": claude_probability,
         "probability_edge": claude_probability - market_yes_price,
-        "claude_reasoning": claude_reasoning[:500], # 截断，节省token
+        "claude_reasoning": claude_reasoning[:500],
         "recommended_action": recommended_action,
         "action_taken": action_taken,
         "bet_amount_usd": bet_amount_usd,
-        "result": None,       # 待更新：WIN / LOSS / PUSH
-        "pnl_usd": None,      # 待更新：盈亏金额
-        "lesson": None,       # 待更新：事后复盘
+        "result": None,
+        "pnl_usd": None,
+        "lesson": None,
     }
     records.append(record)
     save_experience(records)
-    logger.info(f"已记录分析 #{record['id']}: {market_question[:50]}")
+    logger.info(f"Analysis recorded #{record['id']}: {market_question[:50]}")
     return record
 
 
 def update_trade_result(record_id: int, result: str, pnl_usd: float, lesson: str = "") -> None:
-    """
-    事后更新某条记录的交易结果
-    result: 'WIN' / 'LOSS' / 'PUSH'
-    """
+    """Update the outcome of a past trade. result: 'WIN' / 'LOSS' / 'PUSH'"""
     records = load_experience()
     for r in records:
         if r["id"] == record_id:
@@ -84,45 +79,39 @@ def update_trade_result(record_id: int, result: str, pnl_usd: float, lesson: str
             r["lesson"] = lesson
             break
     save_experience(records)
-    logger.info(f"已更新记录 #{record_id} 结果: {result} ${pnl_usd:+.2f}")
+    logger.info(f"Record #{record_id} updated: {result} ${pnl_usd:+.2f}")
 
 
 def format_experience_for_claude(max_records: int = 20) -> str:
-    """
-    把历史经验格式化成文本，喂给 Claude API 参考
-    只取最近 N 条有结果的记录
-    """
+    """Format historical experience as text for the AI prompt. Only includes completed records."""
     records = load_experience()
     completed = [r for r in records if r.get("result") is not None]
     recent = completed[-max_records:]
 
     if not recent:
-        return "暂无历史交易记录，这是系统首次运行。"
+        return "No historical trade records yet. This is the first run."
 
     wins = sum(1 for r in recent if r["result"] == "WIN")
     losses = sum(1 for r in recent if r["result"] == "LOSS")
     total_pnl = sum(r.get("pnl_usd", 0) or 0 for r in recent)
 
-    summary = f"历史战绩（最近{len(recent)}笔）：{wins}胜 {losses}负，总盈亏 ${total_pnl:+.2f}\n\n"
-    summary += "代表性案例：\n"
+    summary = f"Historical record (last {len(recent)} trades): {wins}W {losses}L, Total PnL ${total_pnl:+.2f}\n\n"
+    summary += "Representative cases:\n"
 
-    for r in recent[-5:]:  # 只给最近5条详情，避免token过多
+    for r in recent[-5:]:
         summary += (
             f"- {r['timestamp'][:10]} | {r['market_question'][:60]}\n"
-            f"  市场定价:{r['market_yes_price']*100:.0f}% vs Claude判断:{r['claude_probability']*100:.0f}%"
+            f"  Market:{r['market_yes_price']*100:.0f}% vs AI:{r['claude_probability']*100:.0f}%"
             f"  → {r['action_taken']} → {r['result']} ${r.get('pnl_usd', 0):+.1f}\n"
         )
         if r.get("lesson"):
-            summary += f"  教训：{r['lesson']}\n"
+            summary += f"  Lesson: {r['lesson']}\n"
 
     return summary
 
 
 def get_recent_market_ids(cooldown_hours: int = 6) -> set:
-    """
-    获取最近 N 小时内已分析过的市场 ID 集合
-    用于去重，避免同一扫描周期内重复分析同一市场浪费 token
-    """
+    """Get market IDs analyzed in the last N hours for dedup"""
     records = load_experience()
     if not records:
         return set()
@@ -135,8 +124,6 @@ def get_recent_market_ids(cooldown_hours: int = 6) -> set:
         try:
             ts = datetime.fromisoformat(r["timestamp"])
             if ts > cutoff:
-                # 从 market_question 提取关键词作为去重标识
-                # 直接用 question 的前 80 个字符做 fuzzy key
                 q = r.get("market_question", "")
                 recent_ids.add(q[:80])
         except (ValueError, KeyError):
@@ -145,7 +132,7 @@ def get_recent_market_ids(cooldown_hours: int = 6) -> set:
 
 
 def get_stats() -> Dict:
-    """获取整体统计数据"""
+    """Get overall performance statistics"""
     records = load_experience()
     completed = [r for r in records if r.get("result") is not None]
     if not completed:
