@@ -4,5 +4,5 @@ requests>=2.31.0
 schedule>=1.2.0
 cryptography>=41.0.0
 
-# 可选：真实交易需要
+# Optional: live trading (Polygon)
 # py-clob-client>=0.16.0

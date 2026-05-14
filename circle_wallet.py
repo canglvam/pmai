@@ -1,15 +1,15 @@
 """
-Circle 开发者钱包模块 — 代理的 USDC 金库通过 Circle API 管理
+Circle Developer Wallets module — agent's USDC treasury managed via Circle API
 
-集成方式：
-  1. 去 https://console.circle.com 注册 → 创建 API Key（SANDBOX）
-  2. 按指引生成 Entity Secret（32字节16进制）
-  3. 注册 Entity Secret（只需做一次）
-  4. 填入 .env:
+Setup:
+  1. Go to https://console.circle.com → create API Key (SANDBOX)
+  2. Generate Entity Secret (32-byte hex) as instructed
+  3. Register Entity Secret (one-time)
+  4. Add to .env:
      CIRCLE_API_KEY=SANDOX_...
-     ENTITY_SECRET=你的32字节entity_secret
+     ENTITY_SECRET=your_32_byte_entity_secret
 
-这会替换 Polymarket 私钥方案：代理的所有链上资金走 Circle 钱包。
+This replaces the Polymarket private key approach: all agent funds go through Circle.
 """
 
 import json
@@ -23,13 +23,13 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-# Circle 测试网 API
+# Circle testnet API
 CIRCLE_API_BASE = "https://api.circle.com/v1/w3s"
 
 CIRCLE_API_KEY = os.getenv("CIRCLE_API_KEY", "")
 ENTITY_SECRET = os.getenv("ENTITY_SECRET", "")
 
-# 当前代理的钱包地址（运行时缓存）
+# Agent wallet address (runtime cache)
 _agent_wallet_address: str | None = None
 _wallet_set_id: str | None = None
 _wallet_id: str | None = None
@@ -50,27 +50,27 @@ def is_configured() -> bool:
 
 
 def get_agent_wallet_address() -> str | None:
-    """返回代理当前使用的 Circle 钱包地址"""
+    """Return the agent's current Circle wallet address"""
     return _agent_wallet_address
 
 
 def init_agent_wallet() -> dict:
     """
-    初始化代理的钱包 — 创建或复用 Circle Dev Wallet on Arc Testnet
-    调用一次即可，后续调用返回缓存值
+    Initialize agent wallet — create or reuse Circle Dev Wallet on Arc Testnet.
+    Call once; subsequent calls return cached value.
 
-    返回: {"address": "0x...", "wallet_set_id": "...", "wallet_id": "..."}
+    Returns: {"address": "0x...", "wallet_set_id": "...", "wallet_id": "..."}
     """
     global _agent_wallet_address, _wallet_set_id, _wallet_id
 
     if not is_configured():
-        logger.info("Circle Wallet 未配置（CIRCLE_API_KEY 未设置），使用 Polymarket 私钥方案")
+        logger.info("Circle Wallet not configured (CIRCLE_API_KEY not set), using Polymarket private key mode")
         return {"address": None, "wallet_set_id": None, "wallet_id": None}
 
     if _agent_wallet_address:
         return {"address": _agent_wallet_address, "wallet_set_id": _wallet_set_id, "wallet_id": _wallet_id}
 
-    logger.info("初始化 Circle 开发者钱包（Arc Testnet）...")
+    logger.info("Initializing Circle Developer Wallet (Arc Testnet)...")
 
     try:
         ws_id = _find_or_create_wallet_set()
@@ -80,18 +80,18 @@ def init_agent_wallet() -> dict:
         _wallet_id = w_id
         _agent_wallet_address = addr
 
-        logger.info(f"代理钱包就绪: {addr} (Circle Wallet ID: {w_id})")
-        logger.info(f"Arc 浏览器: https://testnet.arcscan.app/address/{addr}")
+        logger.info(f"Agent wallet ready: {addr} (Circle Wallet ID: {w_id})")
+        logger.info(f"ArcScan: https://testnet.arcscan.app/address/{addr}")
 
         return {"address": addr, "wallet_set_id": ws_id, "wallet_id": w_id}
 
     except Exception as e:
-        logger.error(f"Circle 钱包初始化失败: {e}")
+        logger.error(f"Circle wallet init failed: {e}")
         return {"address": None, "wallet_set_id": None, "wallet_id": None}
 
 
 def _find_or_create_wallet_set() -> str:
-    """查找已有 wallet set 或创建新的"""
+    """Find existing wallet set or create a new one"""
     resp = requests.get(
         f"{CIRCLE_API_BASE}/developer/walletSets",
         headers=_headers(),
@@ -102,10 +102,10 @@ def _find_or_create_wallet_set() -> str:
         existing = data.get("data", {}).get("walletSets", [])
         for ws in existing:
             if ws.get("name") == "pmai-agent-arc":
-                logger.info(f"复用已有 Wallet Set: {ws['id']}")
+                logger.info(f"Reusing existing Wallet Set: {ws['id']}")
                 return ws["id"]
 
-    # 创建新的
+    # Create new
     resp = requests.post(
         f"{CIRCLE_API_BASE}/developer/walletSets",
         headers=_headers(with_idempotency=True),
@@ -117,12 +117,12 @@ def _find_or_create_wallet_set() -> str:
     )
     resp.raise_for_status()
     ws_id = resp.json()["data"]["walletSet"]["id"]
-    logger.info(f"创建 Wallet Set: {ws_id}")
+    logger.info(f"Created Wallet Set: {ws_id}")
     return ws_id
 
 
 def _find_or_create_wallet(wallet_set_id: str) -> tuple[str, str]:
-    """查找已有钱包或创建新的（Arc Testnet, chain=5042002）"""
+    """Find existing wallet or create new one (Arc Testnet, chain=5042002)"""
     resp = requests.get(
         f"{CIRCLE_API_BASE}/developer/wallets",
         params={"walletSetId": wallet_set_id},
@@ -134,10 +134,10 @@ def _find_or_create_wallet(wallet_set_id: str) -> tuple[str, str]:
         for w in wallets:
             if w.get("blockchain") == "ARC" and w.get("state") == "COMPLETE":
                 addr = w.get("address")
-                logger.info(f"复用已有钱包: {addr} ({w['id']})")
+                logger.info(f"Reusing existing wallet: {addr} ({w['id']})")
                 return w["id"], addr
 
-    # 创建新钱包
+    # Create new wallet
     resp = requests.post(
         f"{CIRCLE_API_BASE}/developer/wallets",
         headers=_headers(with_idempotency=True),
@@ -155,18 +155,18 @@ def _find_or_create_wallet(wallet_set_id: str) -> tuple[str, str]:
     wallet_info = resp.json()["data"]["wallets"][0]
     w_id = wallet_info["id"]
     addr = wallet_info["address"]
-    logger.info(f"创建新钱包: {addr} ({w_id})")
+    logger.info(f"Created new wallet: {addr} ({w_id})")
     return w_id, addr
 
 
 def _make_ciphertext() -> str:
-    """构造 entity secret ciphertext"""
+    """Build entity secret ciphertext for Circle API"""
     from base64 import b64encode
     from cryptography.hazmat.primitives import serialization, hashes
     from cryptography.hazmat.primitives.asymmetric import padding
     from cryptography.hazmat.backends import default_backend
 
-    # 获取 Circle 的公钥
+    # Fetch Circle's public key
     resp = requests.get(
         f"{CIRCLE_API_BASE}/config/entity/publicKey",
         timeout=10,
@@ -192,15 +192,15 @@ def _make_ciphertext() -> str:
 
 def get_usdc_balance(address: str | None = None) -> dict:
     """
-    查询代理 Circle 钱包的 USDC 余额（Arc 链上）
-    返回: {"balance_usdc": 123.45, "address": "0x..."}
+    Query agent's Circle wallet USDC balance on Arc.
+    Returns: {"balance_usdc": 123.45, "address": "0x..."}
     """
     addr = address or _agent_wallet_address
     if not addr:
-        return {"balance_usdc": 0, "address": "", "error": "钱包未初始化"}
+        return {"balance_usdc": 0, "address": "", "error": "Wallet not initialized"}
 
     if not _wallet_id:
-        return {"balance_usdc": 0, "address": addr, "error": "wallet_id 未知"}
+        return {"balance_usdc": 0, "address": addr, "error": "wallet_id unknown"}
 
     try:
         resp = requests.get(
@@ -218,23 +218,23 @@ def get_usdc_balance(address: str | None = None) -> dict:
                 usdc = raw / 1e6  # USDC 6 decimals
                 break
 
-        logger.info(f"Circle 钱包余额: ${usdc:.2f} USDC ({addr})")
+        logger.info(f"Circle wallet balance: ${usdc:.2f} USDC ({addr})")
         return {"balance_usdc": usdc, "address": addr}
 
     except Exception as e:
-        logger.warning(f"查询 Circle 余额失败: {e}")
+        logger.warning(f"Failed to query Circle balance: {e}")
         return {"balance_usdc": 0, "address": addr, "error": str(e)}
 
 
 def send_usdc(to_address: str, amount: float) -> dict:
     """
-    从代理的 Circle 钱包发送 USDC
-    amount: USDC 数量（人类可读，如 10.0 = $10 USDC）
+    Send USDC from the agent's Circle wallet.
+    amount: human-readable USDC amount (e.g. 10.0 = $10 USDC)
     """
     if not is_configured() or not _wallet_id:
-        return {"status": "FAILED", "reason": "Circle Wallet 未初始化"}
+        return {"status": "FAILED", "reason": "Circle Wallet not initialized"}
 
-    amount_raw = str(int(amount * 1e6))  # 转 6 小数位
+    amount_raw = str(int(amount * 1e6))
 
     try:
         resp = requests.post(
@@ -244,7 +244,7 @@ def send_usdc(to_address: str, amount: float) -> dict:
                 "idempotencyKey": str(uuid.uuid4()),
                 "entitySecretCiphertext": _make_ciphertext(),
                 "walletId": _wallet_id,
-                "tokenId": "USDC-ARC",  # Arc 上的 USDC
+                "tokenId": "USDC-ARC",
                 "destinationAddress": to_address,
                 "amount": amount_raw,
                 "feeLevel": "MEDIUM",
@@ -255,16 +255,16 @@ def send_usdc(to_address: str, amount: float) -> dict:
         tx_data = resp.json()["data"]
         tx_id = tx_data["id"]
 
-        logger.info(f"Circle 转账已提交: {amount} USDC → {to_address} (tx: {tx_id})")
+        logger.info(f"Circle transfer submitted: {amount} USDC → {to_address} (tx: {tx_id})")
         return {"status": "SUBMITTED", "tx_id": tx_id, "amount_usdc": amount, "to": to_address}
 
     except Exception as e:
-        logger.error(f"Circle 转账失败: {e}")
+        logger.error(f"Circle transfer failed: {e}")
         return {"status": "FAILED", "reason": str(e)}
 
 
 def wait_for_transaction(tx_id: str, max_wait: int = 60) -> dict:
-    """轮询等待交易完成（最多 max_wait 秒）"""
+    """Poll for transaction completion (up to max_wait seconds)"""
     start = time.time()
     while time.time() - start < max_wait:
         try:
@@ -277,22 +277,22 @@ def wait_for_transaction(tx_id: str, max_wait: int = 60) -> dict:
             state = resp.json()["data"]["transaction"]["state"]
 
             if state in ("COMPLETE", "FAILED", "DENIED", "CANCELLED"):
-                logger.info(f"交易 {tx_id} 终态: {state}")
+                logger.info(f"Transaction {tx_id} final state: {state}")
                 return {"status": state, "tx_id": tx_id}
 
             time.sleep(2)
         except Exception as e:
-            logger.warning(f"轮询交易状态失败: {e}")
+            logger.warning(f"Poll transaction status failed: {e}")
             time.sleep(3)
 
     return {"status": "TIMEOUT", "tx_id": tx_id}
 
 
 def generate_agent_report() -> str:
-    """生成本代理钱包的可公开报告（可发 X）"""
+    """Generate a public-facing agent wallet report (X-ready)"""
     addr = _agent_wallet_address
     if not addr:
-        return "[PMAI] Circle Wallet: 未配置"
+        return "[PMAI] Circle Wallet: not configured"
 
     bal = get_usdc_balance()
 
